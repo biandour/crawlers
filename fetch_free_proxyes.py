@@ -302,7 +302,7 @@ async def routine(sem):
         # conn = aiohttp.TCPConnector(limit=30)
         async with aiohttp.ClientSession() as sess:
             async with aiomysql.create_pool(host='127.0.0.1', port=3306,
-                                            user='root', password='GucneDizuyu%x3jW',
+                                            user='root', password='password',
                                             db='crawler_data_db') as pool:
                 async with aiofiles.open('json_proxies.dat', 'w') as f:
                     for result in results:

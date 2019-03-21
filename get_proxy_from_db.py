@@ -2,7 +2,7 @@ import pymysql
 
 
 def read_db(num=300, type='http'):
-    conn = pymysql.connect(host='127.0.0.1', port=3306, user='root', password='GucneDizuyu%x3jW', db='crawler_data_db')
+    conn = pymysql.connect(host='127.0.0.1', port=3306, user='root', password='password', db='crawler_data_db')
     cursor = conn.cursor()
     if type == 'http' or type == 'https':
         db_type = 1 if type == 'https' else 0
