@@ -1,4 +1,12 @@
 import pymysql
+import logging
+
+try_count = 0
+logger = logging.getLogger(__file__)
+LOG_FILE = 'test.log'
+LOG_FORMAT = '###### %(name)s - %(asctime)s - %(levelname)s - %(message)s'
+DATE_FORMAT = '%Y/%m/%d %H:%M:%S'
+logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format=LOG_FORMAT, datefmt=DATE_FORMAT)
 
 
 def read_db(num=300, type='http'):
@@ -27,8 +35,16 @@ def handle_result(result):
 
 
 def push_new_proxies(num=300, type='http'):
-    return handle_result(read_db(num, type))
+    try:
+        global try_count
+        logger.info('push new proxies count {}'.format(try_count))
+        try_count += 1
+        return handle_result(read_db(num, type))
+    except Exception as e:
+        logger.warning(e, exc_info=True, stack_info=True)
+        if try_count < 5:
+            push_new_proxies(num=300, type='http')
 
 
 if __name__ == '__main__':
-    print(push_new_proxies())
+    print(push_new_proxies(300, 'https'))

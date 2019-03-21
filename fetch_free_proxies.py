@@ -14,7 +14,11 @@ import aiomysql
 import hashlib
 import aiofiles
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__file__)
+LOG_FILE = 'test.log'
+LOG_FORMAT = '###### %(name)s - %(asctime)s - %(levelname)s - %(message)s'
+DATE_FORMAT = '%Y/%m/%d %H:%M:%S'
+logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format=LOG_FORMAT, datefmt=DATE_FORMAT)
 
 ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.75 Safari/537.36'
 
@@ -24,8 +28,7 @@ async def get_page(sess, url):
         async with sess.get(url, headers={'User-agent': ua}) as resp:
             return resp.status, await resp.text()
     except Exception as e:
-        logger.warning(e)
-        logger.warning(traceback.print_exc())
+        logger.warning(e, exc_info=True, stack_info=True)
 
 
 def get_html(web_page):
@@ -37,6 +40,7 @@ async def fetch_kxdaili():
     """
     从www.kxdaili.com抓取免费代理
     """
+    logger.info('start to fetch proxies from kxdaili')
     proxies = []
     urls = ['http://ip.kxdaili.com/ipList/{}.html'.format(_+1) for _ in range(10)]
     async with aiohttp.ClientSession() as sess:
@@ -69,8 +73,7 @@ async def fetch_kxdaili():
                             proxy_item['type'] = _
                             proxies.append(proxy_item)
             except Exception as e:
-                logger.warning(e)
-                logger.warning(traceback.print_exc())
+                logger.warning(e, exc_info=True, stack_info=True)
                 logger.warning("fail to fetch from kxdaili")
                 continue
     return proxies
@@ -80,6 +83,7 @@ async def fetch_xici():
     """
     https://www.xicidaili.com/nn/
     """
+    logger.info('start to fetch proxies from kxdaili')
     proxies = []
     urls = ['https://www.xicidaili.com/nn/{}'.format(_+1) for _ in range(10)]
     async with aiohttp.ClientSession() as sess:
@@ -105,8 +109,7 @@ async def fetch_xici():
                         proxy_item['check_time'] = check_time
                     proxies.append(proxy_item)
                 except Exception as e:
-                    logger.warning(e)
-                    logger.warning(traceback.print_exc())
+                    logger.warning(e, exc_info=True, stack_info=True)
                     logger.warning("fail to fetch from xici")
                     continue
     return proxies
@@ -119,30 +122,39 @@ async def fetch_66ip(num=300):
     num: 每次提取数量 (<=300)
     proxytype: 0 = http, 1 = https
     """
+    logger.info('start to fetch proxies from 66ip')
     proxies = []
     num = num if num <= 300 else 300
     base_url = 'http://www.66ip.cn/nmtq.php?getnum={}&isp=0&anonymoustype=0&start=&ports=&export=&ipaddress=&area=0&proxytype={}&api=66ip'
     async with aiohttp.ClientSession() as sess:
         for type in (0, 1):
             for _ in range(4):
-                status, page = await get_page(sess, base_url.format(num, type))
-                if status != 200:
+                try:
+                    status, page = await get_page(sess, base_url.format(num, type))
+                    if status != 200:
+                        continue
+                    ret = re.findall(r'(\d+\.\d+\.\d+\.\d+:\d+)<br', page)
+                    for proxy in ret:
+                        ip, port = proxy.split(':')
+                        proxies.append({
+                            'ip': ip,
+                            'port': port,
+                            'level': '匿名',
+                            'type': 'http' if type == 0 else 'https',
+                            'check_time': int(datetime.timestamp(datetime.now())),
+                            'location': '',
+                        })
+                except Exception as e:
+                    logger.warning(e, exc_info=True, stack_info=True)
+                    logger.warning('fail to fetch from 66ip')
                     continue
-                ret = re.findall(r'(\d+\.\d+\.\d+\.\d+:\d+)<br', page)
-                for proxy in ret:
-                    ip, port = proxy.split(':')
-                    proxies.append({
-                        'ip': ip,
-                        'port': port,
-                        'level': '匿名',
-                        'type': 'http' if type == 0 else 'https',
-                        'check_time': int(datetime.timestamp(datetime.now())),
-                        'location': '',
-                    })
     return proxies
 
 
 async def fetch_ip3366():
+    """
+    从www.ip3366.net/free/抓取代理，该网站对访问评率控制严格
+    """
     proxies = []
     base_url = 'http://www.ip3366.net/free/?stype={}&page={}'
     async with aiohttp.ClientSession() as sess:
@@ -169,10 +181,9 @@ async def fetch_ip3366():
                             check_time = int(datetime.timestamp(datetime.strptime(check_time[0], '%Y/%m/%d %H:%M:%S')))
                             proxy_item['check_time'] = check_time
                         proxies.append(proxy_item)
-                        print(proxy_item)
+                        # print(proxy_item)
                     except Exception as e:
-                        logger.warning(e)
-                        logger.warning(traceback.print_exc())
+                        logger.warning(e, exc_info=True, stack_info=True)
                         logger.warning("fail to fetch from ip3366")
                         continue
                 await asyncio.sleep(random.random()+0.3)
@@ -180,6 +191,11 @@ async def fetch_ip3366():
 
 
 async def fetch_data5u():
+    """
+    从www.data5u.com/free/抓取代理，数量较少
+    :return:
+    """
+    logger.info('start fetching proxies from data5u')
     proxies = []
     urls = [
         'http://www.data5u.com/free/gngn/index.shtml',
@@ -189,20 +205,25 @@ async def fetch_data5u():
     ]
     async with aiohttp.ClientSession() as sess:
         for url in urls:
-            status, page = await get_page(sess, url)
-            if status != 200:
+            try:
+                status, page = await get_page(sess, url)
+                if status != 200:
+                    continue
+                html = get_html(page)
+                uls = html.xpath('//ul[@class="l2"]')
+                for ul in uls:
+                    proxies.append({
+                        'ip': ul.xpath('./span[1]/li/text()')[0] if ul.xpath('./span[1]/li/text()') else '',
+                        'port': ul.xpath('./span[2]/li/text()')[0] if ul.xpath('./span[2]/li/text()') else '',
+                        'level': ul.xpath('./span[3]/li/text()')[0] if ul.xpath('./span[3]/li/text()') else '',
+                        'type': ul.xpath('./span[4]/li/text()')[0] if ul.xpath('./span[4]/li/text()') else '',
+                        'location': ul.xpath('./span[5]/li/text()')[0] if ul.xpath('./span[5]/li/text()') else '',
+                        'check_time': ''
+                    })
+            except Exception as e:
+                logger.warning(e, exc_info=True, stack_info=True)
+                logger.warning("fail to fetch from data5u")
                 continue
-            html = get_html(page)
-            uls = html.xpath('//ul[@class="l2"]')
-            for ul in uls:
-                proxies.append({
-                    'ip': ul.xpath('./span[1]/li/text()')[0] if ul.xpath('./span[1]/li/text()') else '',
-                    'port': ul.xpath('./span[2]/li/text()')[0] if ul.xpath('./span[2]/li/text()') else '',
-                    'level': ul.xpath('./span[3]/li/text()')[0] if ul.xpath('./span[3]/li/text()') else '',
-                    'type': ul.xpath('./span[4]/li/text()')[0] if ul.xpath('./span[4]/li/text()') else '',
-                    'location': ul.xpath('./span[5]/li/text()')[0] if ul.xpath('./span[5]/li/text()') else '',
-                    'check_time': ''
-                })
     return proxies
 
 
@@ -231,7 +252,7 @@ async def check(sess, proxy):
                 logger.info('{} is not available'.format(proxy_str))
     except Exception as err:
         logger.info(err)
-        # logger.info(traceback.print_exc())
+        logger.info(err, exc_info=True, stack_info=True)
         logger.info('{} is not available'.format(proxy_str))
 
 
@@ -263,8 +284,7 @@ async def write_sql(pool, proxy):
             except Exception as e:
                 await conn.rollback()
                 await conn.commit()
-                logger.warning(e)
-                logger.warning(traceback.print_exc())
+                logger.warning(e, exc_info=True, stack_info=True)
                 logger.warning('insert proxy: {} failed'.format(proxy))
 
 
@@ -283,8 +303,7 @@ async def check_and_write(proxy, sess, pool, f, sem):
                 if duplicated:
                     await write_file(f, duplicated)
         except Exception as e:
-            logger.warning(e)
-            logger.warning(traceback.print_exc())
+            logger.warning(e, exc_info=True, stack_info=True)
 
 
 async def routine(sem):
@@ -310,8 +329,7 @@ async def routine(sem):
                             new_tasks.append(asyncio.ensure_future(check_and_write(proxy, sess, pool, f, sem)))
                     await asyncio.gather(*new_tasks)
     except Exception as e:
-        logger.warning(e)
-        logger.warning(traceback.print_exc())
+        logger.warning(e, exc_info=True, stack_info=True)
 
 
 def fetch():
