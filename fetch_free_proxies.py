@@ -22,6 +22,8 @@ logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format=LOG_FORMAT, d
 
 ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.75 Safari/537.36'
 
+HOST = 'your ip'
+
 
 async def get_page(sess, url):
     try:
@@ -42,7 +44,7 @@ async def fetch_kxdaili():
     """
     logger.info('start to fetch proxies from kxdaili')
     proxies = []
-    urls = ['http://ip.kxdaili.com/ipList/{}.html'.format(_+1) for _ in range(10)]
+    urls = ['http://ip.kxdaili.com/ipList/{}.html'.format(_ + 1) for _ in range(10)]
     async with aiohttp.ClientSession() as sess:
         for url in urls:
             try:
@@ -65,7 +67,8 @@ async def fetch_kxdaili():
                         ret = re.match(r'^(\d*)分(\d+)秒', check_time)
                         if ret:
                             minute, sec = ret.groups() if ret else (0, 0)
-                            proxy_item['check_time'] = int(datetime.timestamp(datetime.now()) - int(minute)*60 - int(sec))
+                            proxy_item['check_time'] = int(
+                                datetime.timestamp(datetime.now()) - int(minute) * 60 - int(sec))
                     type = tr.xpath('./td[3]/text()')[0] if tr.xpath('./td[3]/text()') else ''
                     if type:
                         type = type.lower().split(',')
@@ -85,7 +88,7 @@ async def fetch_xici():
     """
     logger.info('start to fetch proxies from kxdaili')
     proxies = []
-    urls = ['https://www.xicidaili.com/nn/{}'.format(_+1) for _ in range(10)]
+    urls = ['https://www.xicidaili.com/nn/{}'.format(_ + 1) for _ in range(10)]
     async with aiohttp.ClientSession() as sess:
         for url in urls:
             status, page = await get_page(sess, url)
@@ -160,7 +163,7 @@ async def fetch_ip3366():
     async with aiohttp.ClientSession() as sess:
         for stype in range(4):
             for _ in range(7):
-                url = base_url.format(stype+1, _+1)
+                url = base_url.format(stype + 1, _ + 1)
                 status, page = await get_page(sess, url)
                 if status != 200:
                     continue
@@ -186,7 +189,7 @@ async def fetch_ip3366():
                         logger.warning(e, exc_info=True, stack_info=True)
                         logger.warning("fail to fetch from ip3366")
                         continue
-                await asyncio.sleep(random.random()+0.3)
+                await asyncio.sleep(random.random() + 0.3)
     return proxies
 
 
@@ -244,8 +247,8 @@ async def check(sess, proxy):
         async with sess.get(url, headers={'User-Agent': ua}, proxy=proxy_str,
                             allow_redirects=False, timeout=60, verify_ssl=False) as resp:
             content = await resp.json(encoding='utf8')
-            ip1, ip2 = content['origin'].split(', ')
-            if resp.status == 200 and ip1 == ip2 == proxy['ip']:
+            origin_list = content['origin'].split(', ')
+            if resp.status == 200 and HOST not in origin_list:
                 logger.info('######## {} is available'.format(proxy_str))
                 return proxy
             else:
@@ -272,7 +275,8 @@ async def write_sql(pool, proxy):
     type = 1 if proxy['type'] == 'https' else 0
     level = level2num(proxy['level'])
     sql = '''insert into `t_crawler_proxies` (`id`,`ip`,`port`,`type`, `level`, `location`) 
-            values ('{}','{}','{}',{},{},'{}') ON DUPLICATE KEY UPDATE `update_time` = CURRENT_TIMESTAMP '''.format(sha1.hexdigest(), proxy['ip'], proxy['port'], type, level, proxy['location'])
+            values ('{}','{}','{}',{},{},'{}') ON DUPLICATE KEY UPDATE `update_time` = CURRENT_TIMESTAMP '''.format(
+        sha1.hexdigest(), proxy['ip'], proxy['port'], type, level, proxy['location'])
     # print(sql)
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
@@ -290,7 +294,7 @@ async def write_sql(pool, proxy):
 
 async def write_file(f, proxy):
     item = json.dumps(proxy, ensure_ascii=False)
-    await f.write(item+'\n')
+    await f.write(item + '\n')
     print('write {} to file.'.format(item))
 
 
