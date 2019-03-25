@@ -14,6 +14,8 @@ logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format=LOG_FORMAT, d
 SEC_IN_DAY = 24*60*60
 ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.75 Safari/537.36'
 HOST = config.IP
+UNAVAILABLE_ERRORS = (asyncio.TimeoutError, aiohttp.ClientProxyConnectionError, aiohttp.ContentTypeError,
+                      ConnectionRefusedError)
 
 
 async def fetch_old_proxies(pool, num=500):
@@ -47,6 +49,7 @@ async def handle_checked_proxies(pool, ret):
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(sql)
+                print(sql)
                 await conn.commit()
                 return 'OK'
     except Exception as e:
@@ -60,8 +63,11 @@ async def check(proxy, pool, sess, sem):
         str_type = 'https' if int_type == 1 else 'http'
         url = '{}://www.httpbin.org/ip'.format(str_type)
         proxy_str = 'http://{}:{}'.format(ip, port)
+        ret = {}
         try:
+            print(proxy)
             print('checking ' + proxy_str)
+            print('checking: ' + url)
             async with sess.get(url, headers={'User-Agent': ua}, proxy=proxy_str,
                                 allow_redirects=False, timeout=30, verify_ssl=False) as resp:
                 content = await resp.json(encoding='utf8')
@@ -74,23 +80,37 @@ async def check(proxy, pool, sess, sem):
                     logger.info('####### {} is not available'.format(proxy_str))
                     print('####### {} is not available'.format(proxy_str))
                     ret = {'status': False, 'auto_id': auto_id}
-                return await handle_checked_proxies(pool, ret)
+                await handle_checked_proxies(pool, ret)
         except Exception as err:
-            logger.info(err)
-            logger.info(err, exc_info=True)
-            logger.info('check {} failed'.format(proxy_str))
+            if isinstance(err, UNAVAILABLE_ERRORS):
+                logger.info(err)
+                logger.info(err, exc_info=True)
+                logger.info('####### {} is not available'.format(proxy_str))
+                print('####### {} is not available'.format(proxy_str))
+                ret = {'status': False, 'auto_id': auto_id}
+            else:
+                logger.info(err)
+                logger.info(err, exc_info=True)
+                logger.info('check {} failed'.format(proxy_str))
+        finally:
+            if ret:
+                await handle_checked_proxies(pool, ret)
 
 
 async def update_db(sem, num=500):
     async with aiohttp.ClientSession() as sess:
         async with aiomysql.create_pool(host=config.HOST, port=3306, user=config.USER,
                                         password=config.PASSWORD, db='crawler_data_db') as pool:
-            old_proxies = await fetch_old_proxies(pool, num)
-            tasks = [asyncio.ensure_future(check(proxy, pool, sess, sem)) for proxy in old_proxies]
-            await asyncio.wait(tasks)
+            while True:
+                old_proxies = await fetch_old_proxies(pool, num)
+                if not old_proxies:
+                    break
+                tasks = [asyncio.ensure_future(check(proxy, pool, sess, sem)) for proxy in old_proxies]
+                await asyncio.wait(tasks)
+                logger.info('------------ this round is done')
 
 
-def double_check(concurrency=100):
+def double_check(concurrency=50):
     sem = asyncio.Semaphore(concurrency)
     loop = asyncio.get_event_loop()
     loop.run_until_complete(update_db(sem))
