@@ -2,28 +2,31 @@ import asyncio
 import aiomysql
 import aiohttp
 import logging
+import config
+import time
 
 logger = logging.getLogger(__file__)
-LOG_FILE = 'test.log'
+LOG_FILE = config.LOG_FILE
 LOG_FORMAT = '###### %(name)s - %(asctime)s - %(levelname)s - %(message)s'
 DATE_FORMAT = '%Y/%m/%d %H:%M:%S'
 logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format=LOG_FORMAT, datefmt=DATE_FORMAT)
 
 SEC_IN_DAY = 24*60*60
 ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.75 Safari/537.36'
-HOST = 'your ip'
+HOST = config.IP
 
 
 async def fetch_old_proxies(pool, num=500):
     async with pool.acquire() as conn:
         async with conn.cursor() as cursor:
             sql = '''
-                select `auto_id`, `ip`, `port`, `type`, `update_time` from `t_crawler_proxies` order by `update_time` limit {};
-            '''.format(num)
+                select `auto_id`, `ip`, `port`, `type`, `update_time` from `t_crawler_proxies`
+                where `update_time`< '{}' order by `update_time` limit {};
+            '''.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()-SEC_IN_DAY)), num)
             try:
                 await cursor.execute(sql)
                 results = await cursor.fetchall()
-                print(results)
+                # print(results)
                 return results
             except Exception as e:
                 logger.warning(e, exc_info=True)
@@ -80,8 +83,8 @@ async def check(proxy, pool, sess, sem):
 
 async def update_db(sem, num=500):
     async with aiohttp.ClientSession() as sess:
-        async with aiomysql.create_pool(host='remotehost', port=3306, user='user',
-                                        password='pass', db='crawler_data_db') as pool:
+        async with aiomysql.create_pool(host=config.HOST, port=3306, user=config.USER,
+                                        password=config.PASSWORD, db='crawler_data_db') as pool:
             old_proxies = await fetch_old_proxies(pool, num)
             tasks = [asyncio.ensure_future(check(proxy, pool, sess, sem)) for proxy in old_proxies]
             await asyncio.wait(tasks)
