@@ -1,5 +1,4 @@
 import asyncio
-import pymysql
 import aiomysql
 import aiohttp
 import logging
@@ -15,19 +14,19 @@ ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_0) AppleWebKit/537.36 (KHTML,
 HOST = 'your ip'
 
 
-async def fetch_old_proxies(pool, num=100):
+async def fetch_old_proxies(pool, num=500):
     async with pool.acquire() as conn:
-    # conn = pymysql.connect(host='127.0.0.1', port=3306, user='root', password='password', db='crawler_data_db')
-        cursor = conn.cursor()
-        sql = '''
-            select `auto_id`, `ip`, `port`, `type`, `update_time` from `t_crawler_proxies` order by `update_time` limit {};
-        '''.format(num)
-        try:
-            await cursor.execute(sql)
-            results = await cursor.fetchall()
-            return [result[0] for result in results]
-        except Exception as e:
-            logger.warning(e, exc_info=True)
+        async with conn.cursor() as cursor:
+            sql = '''
+                select `auto_id`, `ip`, `port`, `type`, `update_time` from `t_crawler_proxies` order by `update_time` limit {};
+            '''.format(num)
+            try:
+                await cursor.execute(sql)
+                results = await cursor.fetchall()
+                print(results)
+                return results
+            except Exception as e:
+                logger.warning(e, exc_info=True)
 
 
 async def handle_checked_proxies(pool, ret):
@@ -43,8 +42,8 @@ async def handle_checked_proxies(pool, ret):
         '''.format(auto_id)
     try:
         async with pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(sql)
+            async with conn.cursor() as cursor:
+                await cursor.execute(sql)
                 await conn.commit()
                 return 'OK'
     except Exception as e:
@@ -61,14 +60,16 @@ async def check(proxy, pool, sess, sem):
         try:
             print('checking ' + proxy_str)
             async with sess.get(url, headers={'User-Agent': ua}, proxy=proxy_str,
-                                allow_redirects=False, timeout=60, verify_ssl=False) as resp:
+                                allow_redirects=False, timeout=30, verify_ssl=False) as resp:
                 content = await resp.json(encoding='utf8')
                 origin_list = content['origin'].split(', ')
                 if resp.status == 200 and HOST not in origin_list:
                     logger.info('######## {} is available'.format(proxy_str))
+                    print('######## {} is available'.format(proxy_str))
                     ret = {'status': True, 'auto_id': auto_id}
                 else:
-                    logger.info('{} is not available'.format(proxy_str))
+                    logger.info('####### {} is not available'.format(proxy_str))
+                    print('####### {} is not available'.format(proxy_str))
                     ret = {'status': False, 'auto_id': auto_id}
                 return await handle_checked_proxies(pool, ret)
         except Exception as err:
@@ -77,16 +78,16 @@ async def check(proxy, pool, sess, sem):
             logger.info('check {} failed'.format(proxy_str))
 
 
-async def update_db(sem, num=200):
+async def update_db(sem, num=500):
     async with aiohttp.ClientSession() as sess:
-        async with aiomysql.create_pool(host='127.0.0.1', port=3306, user='root',
-                                        password='password', db='crawler_data_db') as pool:
+        async with aiomysql.create_pool(host='remotehost', port=3306, user='user',
+                                        password='pass', db='crawler_data_db') as pool:
             old_proxies = await fetch_old_proxies(pool, num)
             tasks = [asyncio.ensure_future(check(proxy, pool, sess, sem)) for proxy in old_proxies]
             await asyncio.wait(tasks)
 
 
-def double_check(concurrency=50):
+def double_check(concurrency=100):
     sem = asyncio.Semaphore(concurrency)
     loop = asyncio.get_event_loop()
     loop.run_until_complete(update_db(sem))
