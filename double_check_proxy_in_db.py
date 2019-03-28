@@ -15,7 +15,7 @@ SEC_IN_DAY = 24*60*60
 ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.75 Safari/537.36'
 HOST = config.IP
 UNAVAILABLE_ERRORS = (asyncio.TimeoutError, aiohttp.ClientProxyConnectionError, aiohttp.ContentTypeError,
-                      ConnectionRefusedError)
+                      ConnectionRefusedError, aiohttp.ClientHttpProxyError)
 
 
 async def fetch_old_proxies(pool, num=500):
@@ -95,6 +95,21 @@ async def check(proxy, pool, sess, sem):
         finally:
             if ret:
                 await handle_checked_proxies(pool, ret)
+
+
+async def clear_ancient_proxy(pool):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            sql = '''
+                delete from `t_crawler_proxies` where `update_time`< '{}';
+            '''.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()-SEC_IN_DAY*3)))
+            try:
+                await cursor.execute(sql)
+                results = await cursor.fetchall()
+                # print(results)
+                return results
+            except Exception as e:
+                logger.warning(e, exc_info=True)
 
 
 async def update_db(sem, num=500):

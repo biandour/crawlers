@@ -1,18 +1,15 @@
-# -*- coding: utf-8 -*-
-
 import logging
 import aiohttp
 from lxml import etree
 from datetime import datetime
 import re
 import asyncio
-import traceback
-from aiohttp.client_exceptions import ClientError
 import json
 import random
 import aiomysql
 import hashlib
 import aiofiles
+import config
 
 logger = logging.getLogger(__file__)
 LOG_FILE = 'test.log'
@@ -22,7 +19,7 @@ logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format=LOG_FORMAT, d
 
 ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.75 Safari/537.36'
 
-HOST = 'your ip'
+HOST = config.IP
 
 
 async def get_page(sess, url):
@@ -30,7 +27,7 @@ async def get_page(sess, url):
         async with sess.get(url, headers={'User-agent': ua}) as resp:
             return resp.status, await resp.text()
     except Exception as e:
-        logger.warning(e, exc_info=True, stack_info=True)
+        logger.warning(e, exc_info=True)
 
 
 def get_html(web_page):
@@ -76,7 +73,7 @@ async def fetch_kxdaili():
                             proxy_item['type'] = _
                             proxies.append(proxy_item)
             except Exception as e:
-                logger.warning(e, exc_info=True, stack_info=True)
+                logger.warning(e, exc_info=True)
                 logger.warning("fail to fetch from kxdaili")
                 continue
     return proxies
@@ -112,7 +109,7 @@ async def fetch_xici():
                         proxy_item['check_time'] = check_time
                     proxies.append(proxy_item)
                 except Exception as e:
-                    logger.warning(e, exc_info=True, stack_info=True)
+                    logger.warning(e, exc_info=True)
                     logger.warning("fail to fetch from xici")
                     continue
     return proxies
@@ -148,7 +145,7 @@ async def fetch_66ip(num=300):
                             'location': '',
                         })
                 except Exception as e:
-                    logger.warning(e, exc_info=True, stack_info=True)
+                    logger.warning(e, exc_info=True)
                     logger.warning('fail to fetch from 66ip')
                     continue
     return proxies
@@ -186,7 +183,7 @@ async def fetch_ip3366():
                         proxies.append(proxy_item)
                         # print(proxy_item)
                     except Exception as e:
-                        logger.warning(e, exc_info=True, stack_info=True)
+                        logger.warning(e, exc_info=True)
                         logger.warning("fail to fetch from ip3366")
                         continue
                 await asyncio.sleep(random.random() + 0.3)
@@ -224,16 +221,13 @@ async def fetch_data5u():
                         'check_time': ''
                     })
             except Exception as e:
-                logger.warning(e, exc_info=True, stack_info=True)
+                logger.warning(e, exc_info=True)
                 logger.warning("fail to fetch from data5u")
                 continue
     return proxies
 
 
 async def check(sess, proxy):
-    # logger.info("checking proxies validation")
-    # conn = aiohttp.TCPConnector(limit=30)
-    # async with aiohttp.ClientSession(connector=conn) as sess:
     p_type = proxy.get('type') or ''
     p_type = p_type.lower()
     if p_type == 'https':
@@ -254,8 +248,7 @@ async def check(sess, proxy):
             else:
                 logger.info('{} is not available'.format(proxy_str))
     except Exception as err:
-        logger.info(err)
-        logger.info(err, exc_info=True, stack_info=True)
+        logger.info(err, exc_info=True)
         logger.info('{} is not available'.format(proxy_str))
 
 
@@ -288,7 +281,7 @@ async def write_sql(pool, proxy):
             except Exception as e:
                 await conn.rollback()
                 await conn.commit()
-                logger.warning(e, exc_info=True, stack_info=True)
+                logger.warning(e, exc_info=True)
                 logger.warning('insert proxy: {} failed'.format(proxy))
 
 
@@ -307,7 +300,7 @@ async def check_and_write(proxy, sess, pool, f, sem):
                 if duplicated:
                     await write_file(f, duplicated)
         except Exception as e:
-            logger.warning(e, exc_info=True, stack_info=True)
+            logger.warning(e, exc_info=True)
 
 
 async def routine(sem):
@@ -322,10 +315,9 @@ async def routine(sem):
         results = await asyncio.gather(*tasks)
         new_tasks = []
         logger.info("checking proxies validation and insert into database")
-        # conn = aiohttp.TCPConnector(limit=30)
         async with aiohttp.ClientSession() as sess:
-            async with aiomysql.create_pool(host='127.0.0.1', port=3306,
-                                            user='root', password='password',
+            async with aiomysql.create_pool(host=config.HOST, port=3306,
+                                            user=config.USER, password=config.PASSWORD,
                                             db='crawler_data_db') as pool:
                 async with aiofiles.open('json_proxies.dat', 'w') as f:
                     for result in results:
@@ -333,7 +325,7 @@ async def routine(sem):
                             new_tasks.append(asyncio.ensure_future(check_and_write(proxy, sess, pool, f, sem)))
                     await asyncio.gather(*new_tasks)
     except Exception as e:
-        logger.warning(e, exc_info=True, stack_info=True)
+        logger.warning(e, exc_info=True)
 
 
 def fetch():
