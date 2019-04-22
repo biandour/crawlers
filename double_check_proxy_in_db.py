@@ -15,16 +15,16 @@ SEC_IN_DAY = 24*60*60
 ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.75 Safari/537.36'
 HOST = config.IP
 UNAVAILABLE_ERRORS = (asyncio.TimeoutError, aiohttp.ClientProxyConnectionError, aiohttp.ContentTypeError,
-                      ConnectionRefusedError, aiohttp.ClientHttpProxyError)
+                      ConnectionRefusedError)
 
 
-async def fetch_old_proxies(pool, num=500):
+async def fetch_old_proxies(pool, now, num=50):
     async with pool.acquire() as conn:
         async with conn.cursor() as cursor:
             sql = '''
                 select `auto_id`, `ip`, `port`, `type`, `update_time` from `t_crawler_proxies`
                 where `update_time`< '{}' order by `update_time` limit {};
-            '''.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()-SEC_IN_DAY)), num)
+            '''.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now-SEC_IN_DAY)), num)
             try:
                 await cursor.execute(sql)
                 results = await cursor.fetchall()
@@ -32,6 +32,7 @@ async def fetch_old_proxies(pool, num=500):
                 return results
             except Exception as e:
                 logger.warning(e, exc_info=True)
+                return ()
 
 
 async def handle_checked_proxies(pool, ret):
@@ -63,7 +64,7 @@ async def check(proxy, pool, sess, sem):
         str_type = 'https' if int_type == 1 else 'http'
         url = '{}://www.httpbin.org/ip'.format(str_type)
         proxy_str = 'http://{}:{}'.format(ip, port)
-        ret = {}
+        # ret = {}
         try:
             print(proxy)
             print('checking ' + proxy_str)
@@ -88,48 +89,29 @@ async def check(proxy, pool, sess, sem):
                 logger.info('####### {} is not available'.format(proxy_str))
                 print('####### {} is not available'.format(proxy_str))
                 ret = {'status': False, 'auto_id': auto_id}
+                await handle_checked_proxies(pool, ret)
             else:
                 logger.info(err)
                 logger.info(err, exc_info=True)
                 logger.info('check {} failed'.format(proxy_str))
-        finally:
-            if ret:
-                await handle_checked_proxies(pool, ret)
 
 
-async def clear_ancient_proxy(pool):
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cursor:
-            sql = '''
-                delete from `t_crawler_proxies` where `update_time`< '{}';
-            '''.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()-SEC_IN_DAY*3)))
-            try:
-                await cursor.execute(sql)
-                results = await cursor.fetchall()
-                # print(results)
-                return results
-            except Exception as e:
-                logger.warning(e, exc_info=True)
-
-
-async def update_db(sem, num=500):
+async def update_db(now, sem, num=1000):
     async with aiohttp.ClientSession() as sess:
         async with aiomysql.create_pool(host=config.HOST, port=3306, user=config.USER,
                                         password=config.PASSWORD, db='crawler_data_db') as pool:
-            while True:
-                old_proxies = await fetch_old_proxies(pool, num)
-                if not old_proxies:
-                    break
-                tasks = [asyncio.ensure_future(check(proxy, pool, sess, sem)) for proxy in old_proxies]
-                await asyncio.wait(tasks)
-                logger.info('------------ this round is done')
+            old_proxies = await fetch_old_proxies(pool, now, num)
+            tasks = [asyncio.ensure_future(check(proxy, pool, sess, sem)) for proxy in old_proxies]
+            await asyncio.wait(tasks)
+            logger.info('------------ this round is done')
 
 
-def double_check(concurrency=50):
+def double_check(now, concurrency=50):
     sem = asyncio.Semaphore(concurrency)
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(update_db(sem))
+    loop.run_until_complete(update_db(now, sem))
 
 
 if __name__ == '__main__':
-    double_check()
+    now_time = time.time()
+    double_check(now_time)
