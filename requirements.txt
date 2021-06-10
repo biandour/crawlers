@@ -17,7 +17,7 @@ constantly==15.1.0
 cryptography==2.6.1
 cssselect==1.0.3
 decorator==4.3.2
-Django==2.1.7
+Django==2.2.24
 fake-useragent==0.1.11
 hyperlink==18.0.0
 idna==2.8
